@@ -21,6 +21,7 @@
 ```bash
 cd ~/Projects/paa-demo/plugin/scripts
 
+./paa-tunnel.sh --help     # 查看完整使用说明（命令/配置/排障/示例）
 ./paa-tunnel.sh install    # 安装 systemd 用户服务 + 开机自启 + 立即启动（推荐）
 ./paa-tunnel.sh status     # 查看服务状态、两条隧道健康状态、最近日志
 ./paa-tunnel.sh logs -f    # 持续跟踪日志

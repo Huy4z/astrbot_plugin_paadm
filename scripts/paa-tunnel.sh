@@ -9,7 +9,7 @@
 #   127.0.0.1:8765  -> ECS 127.0.0.1:8765   （PAA 数据面板）
 #   127.0.0.1:16185 -> ECS 127.0.0.1:6185   （AstrBot WebUI，附带）
 #
-# 用法：
+# 用法（完整说明见：./paa-tunnel.sh --help）：
 #   ./paa-tunnel.sh install    # 安装为 systemd 用户服务（开机/登录自启）+ 立即启动
 #   ./paa-tunnel.sh start      # 后台启动看门狗（不装 systemd）
 #   ./paa-tunnel.sh status     # 查看服务/隧道健康状态
@@ -452,7 +452,69 @@ cmd_uninstall() {
 }
 
 usage() {
-    awk 'NR > 1 && /^#/ { sub(/^# ?/, ""); print; next } NR > 1 && !/^#/ { exit }' "$SELF"
+    cat <<'EOF'
+paa-tunnel.sh —— PAA 数据面板 SSH 隧道守护脚本（本机运行）
+
+用途
+  电脑重启 / 休眠唤醒 / 锁屏断网 / 网络切换后，自动重建到 ECS 的本地端口
+  转发，让 PAA 数据面板与 AstrBot WebUI 始终可以从本机访问：
+    127.0.0.1:8765  -> ECS 127.0.0.1:8765   （PAA 数据面板）
+    127.0.0.1:16185 -> ECS 127.0.0.1:6185   （AstrBot WebUI）
+  本脚本同时是最易用的入口：install 会装成 systemd 用户服务（开机/登录自启，
+  Restart=always），并开启 linger（未登录桌面也能拉起）。
+
+用法
+  ./paa-tunnel.sh [命令]
+
+常用命令
+  install      安装 systemd 用户服务 + 立即启动（推荐，幂等）
+  status       查看服务状态、两条隧道健康状态、最近 6 行日志
+  logs [-f]    查看日志（-f 持续跟踪；默认 50 行）
+  start        启动（已安装 systemd 时用 systemctl 起；否则后台起看门狗）
+  stop         停止看门狗与两条隧道（已安装 systemd 时先停服务）
+  restart      等价于 stop + start
+  uninstall    移除 systemd 用户服务与 XDG 自启动项，并停止隧道
+  run          前台运行看门狗（systemd 服务用，一般不要手动执行）
+  help         显示本帮助（等价 --help / -h）
+
+示例
+  ./paa-tunnel.sh install        # 第一次使用：装自启并启动
+  ./paa-tunnel.sh status         # 日常检查：服务 + 隧道是否 OK
+  ./paa-tunnel.sh logs -f        # 断线重连时观察日志
+  ./paa-tunnel.sh restart        # 改过配置后重启
+  sudo loginctl enable-linger $USER   # 如需"开机未登录"也起隧道（一般已开启）
+
+可覆盖的环境变量（也可写进 ~/.config/paa-tunnel.env，见下）
+  PAA_ECS_HOST             ECS 地址（默认 39.103.56.192）
+  PAA_SSH_USER             SSH 用户（默认 root）
+  PAA_SSH_KEY              SSH 私钥（默认 ~/.ssh/id_rsa）
+  PAA_PANEL_PORT           本机面板端口（默认 8765）
+  PAA_PANEL_REMOTE_PORT    ECS 面板端口（默认 8765）
+  PAA_WEBUI_PORT           本机 AstrBot WebUI 端口（默认 16185）
+  PAA_WEBUI_REMOTE_PORT    ECS AstrBot WebUI 端口（默认 6185）
+  PAA_CHECK_INTERVAL       健康检查间隔秒数（默认 10）
+
+文件位置
+  脚本             ~/Projects/paa-demo/plugin/scripts/paa-tunnel.sh
+  systemd 服务     ~/.config/systemd/user/paa-tunnel.service
+  状态/日志        ~/.local/state/paa-tunnel/（tunnel.log、watchdog.pid、tunnel-*）
+  个人配置         ~/.config/paa-tunnel.env（可选，Bash 变量赋值格式）
+
+工作方式
+  每 PAA_CHECK_INTERVAL 秒检查一次两条隧道；失败立即结束旧 ssh 并重连，
+  重连失败按 3s → 6s → 12s → … → 60s 退避重试；ssh 探活
+  ServerAliveInterval=15 / CountMax=3；检测到休眠恢复（时间跳变 >60s）立即重检；
+  flock 单实例，日志超过 1MB 自动轮转。
+
+排障
+  systemctl --user status paa-tunnel --no-pager
+  journalctl --user -u paa-tunnel -n 50 --no-pager
+  tail -f ~/.local/state/paa-tunnel/tunnel.log
+  ssh paa-ecs 'systemctl status paa-panel'   # 区分"隧道断"还是"服务器面板挂"
+EOF
+    printf '\n当前生效值：主机 %s，SSH 用户 %s，私钥 %s\n' "$ECS_HOST" "$SSH_USER" "$SSH_KEY"
+    printf '            端口 %s -> %s（面板）、%s -> %s（WebUI），检查间隔 %ss\n' \
+        "$PANEL_LOCAL_PORT" "$PANEL_REMOTE_PORT" "$WEBUI_LOCAL_PORT" "$WEBUI_REMOTE_PORT" "$CHECK_INTERVAL"
 }
 
 # ---------------------------------------------------------------------------
