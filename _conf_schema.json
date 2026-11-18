@@ -1,0 +1,44 @@
+{
+  "paadm_bin": {
+    "type": "string",
+    "description": "paadm 可执行文件路径（容器内）",
+    "hint": "默认 /AstrBot/data/paa/bin/paadm（宿主机 /opt/astrbot-new/data/paa/bin/paadm）；需可执行权限",
+    "default": "/AstrBot/data/paa/bin/paadm"
+  },
+  "paadm_db": {
+    "type": "string",
+    "description": "paadm 业务数据库路径（容器内），通过环境变量 PAADM_DB_PATH 传给子进程",
+    "hint": "默认 /AstrBot/data/paa/paa.db（宿主机 /opt/astrbot-new/data/paa/paa.db）",
+    "default": "/AstrBot/data/paa/paa.db"
+  },
+  "interactions_db": {
+    "type": "string",
+    "description": "交互日志 SQLite 路径（供 HTML 面板展示）",
+    "hint": "默认 /AstrBot/data/paa/interactions.db；目录不存在时会自动创建",
+    "default": "/AstrBot/data/paa/interactions.db"
+  },
+  "timeout_seconds": {
+    "type": "int",
+    "description": "单次 paadm 调用超时（秒）",
+    "hint": "paadm 只做本地 SQLite 读写，15 秒足够；超时会返回 TIMEOUT 错误并写日志",
+    "default": 15
+  },
+  "reply_max_rows": {
+    "type": "int",
+    "description": "列表类回复最多显示多少行",
+    "hint": "默认 20；总回复长度还会截断到约 1500 字符，避免刷屏",
+    "default": 20
+  },
+  "log_stdout_chars": {
+    "type": "int",
+    "description": "interactions 日志里 stdout/stderr 最多保留多少字符",
+    "hint": "默认 4000；避免大 JSON 撑爆日志库",
+    "default": 4000
+  },
+  "provider_override": {
+    "type": "string",
+    "description": "平台 provider 覆盖值（空 = 按平台自动映射）",
+    "hint": "空字符串时：aiocqhttp/qq_official → qq，webchat → webchat，其它平台名小写兜底；一般无需填写",
+    "default": ""
+  }
+}
