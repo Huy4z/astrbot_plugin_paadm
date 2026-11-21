@@ -32,6 +32,24 @@ ERROR_TIMEOUT = "TIMEOUT"
 ERROR_INVALID_OUTPUT = "INVALID_OUTPUT"
 ERROR_SPAWN = "SPAWN_ERROR"
 ERROR_PAADM = "PAADM_ERROR"
+ERROR_USER_SCOPE = "USER_SCOPE_VIOLATION"
+
+FORBIDDEN_GLOBAL_ARGS = ("--user-id", "--db")
+"""用户可控参数中禁止出现的全局作用域参数。
+
+``--user-id`` 必须由插件根据当前 AstrBot 会话身份注入，``--db`` 只能由
+``PAADM_DB_PATH`` 控制；任何从聊天/LLM 参数透传进来的同名参数都视为越权。
+"""
+
+
+def _find_forbidden_global_arg(args: Sequence[Any]) -> Optional[str]:
+    """返回第一个越权全局参数（支持 ``--flag value`` 与 ``--flag=value``）。"""
+    for item in args:
+        token = str(item)
+        for name in FORBIDDEN_GLOBAL_ARGS:
+            if token == name or token.startswith(name + "="):
+                return token
+    return None
 
 
 class _NullLogger:
@@ -126,6 +144,31 @@ class PaadmClient:
     ) -> PaadmResult:
         """执行一次 paadm 调用并写交互日志；业务错误不会抛异常。"""
         action_name = action or _action_from_args(args)
+        forbidden = _find_forbidden_global_arg(args)
+        if forbidden is not None:
+            argv = [self.paadm_bin, "--json"]
+            result = PaadmResult(
+                success=False,
+                error_code=ERROR_USER_SCOPE,
+                error_message=(
+                    f"拒绝执行：业务参数中不允许出现全局参数 {forbidden}；"
+                    "用户身份由当前对话自动注入"
+                ),
+                argv=argv,
+            )
+            self._record(
+                source=source,
+                action=action_name,
+                platform=platform,
+                sender_id=sender_id,
+                paadm_user_id=user_id,
+                result=result,
+            )
+            self.log.warning(
+                "[paadm] 拒绝越权参数 action=%s arg=%s", action_name, forbidden
+            )
+            return result
+
         argv: List[str] = [self.paadm_bin, "--json"]
         if user_id:
             argv += ["--user-id", str(user_id)]

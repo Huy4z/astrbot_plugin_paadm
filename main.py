@@ -1,7 +1,7 @@
 """astrbot_plugin_paadm —— 让 AstrBot 用 paadm 管理个人事务。
 
 能力：
-- ``/paa ...`` 命令：待办 / 日程 / 提醒 / 收支 / 笔记 / 用户 / 调试透传；
+- ``/paa ...`` 命令：待办 / 日程 / 提醒 / 收支 / 笔记 / 当前用户；
 - ``@filter.llm_tool(name="paadm")``：给 LLM 的通用工具（action + args_json）；
 - 每次实际 paadm 调用都写 ``interactions.db``（source=command|llm_tool|startup），
   供 HTML 面板展示；
@@ -40,7 +40,7 @@ except Exception:  # pragma: no cover - 极少数加载方式下兜底（退化�
     GreedyStr = str  # type: ignore[assignment,misc]
 
 PLUGIN_NAME = "astrbot_plugin_paadm"
-PLUGIN_VERSION = "1.0.0"
+PLUGIN_VERSION = "1.0.1"
 PLUGIN_DESC = "通过 paadm 管理待办/日程/提醒/收支/笔记，并把每次调用写入交互日志供面板展示"
 
 DEFAULT_CONFIG: Dict[str, Any] = {
@@ -203,6 +203,15 @@ class PaadmPlugin(Star):
         sender_id: str = "",
         user_id: Optional[str] = None,
     ) -> paadm_client.PaadmResult:
+        # 安全边界：除系统动作外，所有业务调用都必须带当前会话解析出的 paadm 用户。
+        # 这里做最后一道断言，避免未来新增命令忘记注入 --user-id。
+        if not user_id and action not in ("version", "init", "user.resolve"):
+            logger.error("[paadm] 拒绝无用户上下文的业务调用 action=%s", action)
+            return paadm_client.PaadmResult(
+                success=False,
+                error_code="USER_SCOPE_VIOLATION",
+                error_message="安全限制：业务调用缺少当前对话用户上下文",
+            )
         return await asyncio.to_thread(
             self.client.run,
             list(args),
@@ -277,19 +286,6 @@ class PaadmPlugin(Star):
 
         meta = self._event_meta(event)
 
-        # 调试透传：不注入 --user-id（用户可以自己带），仍自动 --json
-        if plan.action == "raw":
-            result = await self._run_paadm(
-                plan.argv,
-                source="command",
-                action="raw",
-                platform=meta["platform"],
-                sender_id=meta["sender_id"],
-            )
-            return command_router.format_reply(
-                plan, result, reply_max_rows=self.reply_max_rows
-            )
-
         # 业务命令：先幂等 resolve 当前发送者对应的 paadm 用户
         _, resolution = await self._resolve_user(event, source="command")
         if not resolution.ok:
@@ -319,13 +315,14 @@ class PaadmPlugin(Star):
         schedule.create schedule.get schedule.list schedule.delete
         reminder.create reminder.get reminder.list reminder.cancel reminder.delete
         transaction.create transaction.get transaction.list transaction.summary transaction.delete
-        note.create note.get note.list note.delete user.resolve user.get
+        note.create note.get note.list note.delete
 
         注意：transaction.create 的 amount 是整数人民币分（18.50 元 → 1850）；
         其它金额参数在命令层用元，但本工具统一透传 paadm 参数，金额也用分。
+        工具只操作当前对话账号自己的数据，不接受 user_id / db 等全局参数。
 
         Args:
-            action(string): 操作名，如 task.create、task.list、transaction.summary、note.get、user.resolve
+            action(string): 操作名，如 task.create、task.list、transaction.summary、note.get
             args_json(string): JSON 对象字符串，键为 paadm 的 snake_case 参数名，如 {"title":"写周报","due_at":"2026-11-20T18:00:00+08:00"}；无参数时传 {}
         """
         try:
@@ -355,18 +352,7 @@ class PaadmPlugin(Star):
 
         meta = self._event_meta(event)
 
-        # user.* 命令不使用业务 --user-id
-        if plan.action.startswith("user."):
-            result = await self._run_paadm(
-                plan.argv,
-                source="llm_tool",
-                action=plan.action,
-                platform=meta["platform"],
-                sender_id=meta["sender_id"],
-            )
-            command_router.limit_result_data(plan, result)
-            return command_router.tool_result_json(result)
-
+        # 所有 LLM 业务动作都强制使用当前会话解析出的用户；user.* 已从工具移除。
         _, resolution = await self._resolve_user(event, source="llm_tool")
         if not resolution.ok:
             return command_router.tool_error_json(

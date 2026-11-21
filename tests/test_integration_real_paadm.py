@@ -155,7 +155,6 @@ class RealPaadmEndToEndTest(unittest.TestCase):
             ("transaction.summary", {"from": "2026-11-01T00:00:00+08:00"}),
             ("note.create", {"content": "LLM 笔记"}),
             ("note.list", {"keyword": "LLM"}),
-            ("user.get", {"id": self.user_id}),
         ]
         for action, payload in cases:
             with self.subTest(action=action):

@@ -203,13 +203,11 @@ class TaskCommandTest(MainTestBase):
         text, _ = self.run_paa("note get note-1")
         self.assertIn("正文内容", text)
 
-    def test_raw_passthrough(self):
+    def test_raw_command_removed(self):
         text, _ = self.run_paa("raw task list --status pending")
-        self.assertIn("paadm 输出", text)
-        calls = self.calls_list()
-        self.assertEqual(len(calls), 1)
-        self.assertEqual(calls[0], ["--json", "task", "list", "--status", "pending"])
-        self.assertEqual(self.rows()[0]["action"], "raw")
+        self.assertIn("未知命令", text)
+        self.assertEqual(self.calls_list(), [])
+        self.assertEqual(self.rows(), [])
 
     def test_parse_error_does_not_call_paadm(self):
         text, _ = self.run_paa("task add --priority 2")
@@ -288,22 +286,52 @@ class LlmToolTest(MainTestBase):
         self.assertEqual(rows[0]["action"], "task.create")
         self.assertEqual(rows[1]["action"], "user.resolve")
 
-    def test_user_resolve_action_skips_user_lookup(self):
+    def test_user_actions_removed_from_llm_tool(self):
         event = _support.FakeEvent(platform="webchat", sender_id="web-1")
+        for action in ("user.resolve", "user.get"):
+            with self.subTest(action=action):
+                text = _support.run(
+                    _support.call_llm_tool(
+                        self.plugin,
+                        event,
+                        action,
+                        json.dumps({"provider": "webchat", "external_user_id": "web-1"}),
+                    )
+                )
+                payload = json.loads(text)
+                self.assertFalse(payload["success"])
+                self.assertEqual(payload["error"]["code"], "INVALID_ARGUMENT")
+        self.assertEqual(self.calls_list(), [])
+        self.assertEqual(self.rows(), [])
+
+    def test_llm_tool_rejects_user_id_argument(self):
+        event = _support.FakeEvent()
         text = _support.run(
             _support.call_llm_tool(
                 self.plugin,
                 event,
-                "user.resolve",
-                json.dumps({"provider": "webchat", "external_user_id": "web-1"}),
+                "task.list",
+                json.dumps({"user_id": "other-user"}),
             )
         )
         payload = json.loads(text)
-        self.assertTrue(payload["success"])
-        self.assertEqual(payload["data"]["id"], "paa-user-1")
-        calls = self.calls_list()
-        self.assertEqual(len(calls), 1)
-        self.assertEqual(calls[0][-4:], ["--provider", "webchat", "--external-user-id", "web-1"])
+        self.assertFalse(payload["success"])
+        self.assertEqual(payload["error"]["code"], "INVALID_ARGUMENT")
+        self.assertEqual(self.calls_list(), [])
+        self.assertEqual(self.rows(), [])
+
+    def test_business_call_requires_user_context(self):
+        result = _support.run(
+            self.plugin._run_paadm(
+                ["task", "list"],
+                source="command",
+                action="task.list",
+            )
+        )
+        self.assertFalse(result.success)
+        self.assertEqual(result.error_code, "USER_SCOPE_VIOLATION")
+        self.assertEqual(self.calls_list(), [])
+        self.assertEqual(self.rows(), [])
 
     def test_bad_json(self):
         event = _support.FakeEvent()

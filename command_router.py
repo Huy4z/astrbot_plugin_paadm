@@ -65,7 +65,6 @@ HELP_TEXT = """\
 
 其它：
   /paa user                         查看当前账号对应的 paadm 用户
-  /paa raw <paadm 参数...>          调试透传（仍自动加 --json）
   /paa help                         查看本帮助
 
 时间：必须带时区，如 2026-11-17T23:59:00+08:00
@@ -362,10 +361,6 @@ def parse_command(tokens: Sequence[str]) -> CommandPlan:
         if rest:
             raise CommandError("用法：/paa user", hint="不带任何参数，用于查看当前账号对应的 paadm 用户")
         return CommandPlan(action="user.resolve", argv=[], kind="user", verb="当前 paadm 用户")
-    if group == "raw":
-        if not rest:
-            raise CommandError("用法：/paa raw <paadm 参数...>", hint="例如：/paa raw task list")
-        return CommandPlan(action="raw", argv=list(rest), kind="raw", verb="paadm 输出")
     if group == "task":
         return _parse_task(rest)
     if group == "schedule":
@@ -906,10 +901,6 @@ LLM_ACTIONS: Dict[str, ActionSpec] = {
         "note", "list", fields=("keyword", "from", "to", "limit"), kind="note_list", verb="笔记"
     ),
     "note.delete": ActionSpec("note", "delete", fields=("id",), required=("id",), kind="deleted", verb="已删除笔记"),
-    "user.resolve": ActionSpec(
-        "user", "resolve", fields=("provider", "external_user_id"), required=("provider", "external_user_id"), kind="user"
-    ),
-    "user.get": ActionSpec("user", "get", fields=("id",), required=("id",), kind="user", verb="paadm 用户"),
 }
 
 LLM_ACTION_NAMES: Tuple[str, ...] = tuple(LLM_ACTIONS.keys())
@@ -1018,6 +1009,7 @@ _ERROR_HINTS = {
     "TRANSACTION_NOT_FOUND": "没有找到这条收支记录。",
     "NOTE_NOT_FOUND": "没有找到这条笔记。",
     "USER_NOT_FOUND": "没有找到该 paadm 用户，可先发送 /paa user 重新解析。",
+    "USER_SCOPE_VIOLATION": "安全限制：只能操作当前对话账号自己的数据，不能指定其他 paadm 用户。",
     "INVALID_ARGUMENT": "参数不合法：请检查时间格式、金额、枚举值或字段长度。",
     "INVALID_INPUT": "输入不合法，请调整后重试。",
     "DATABASE_BUSY": "数据库正忙，请稍后重试。",
@@ -1314,9 +1306,6 @@ def format_reply(
 
     if kind == "note_list":
         return truncate_text(_format_note_list(data, reply_max_rows))
-
-    if kind == "raw":
-        return truncate_text("paadm 输出：\n" + _format_json_payload(data))
 
     # generic 兜底
     if not data:

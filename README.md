@@ -3,7 +3,7 @@
 让 AstrBot 通过本地 CLI [`paadm`](../../paadm) 管理个人事务，并把**每一次 paadm 调用**
 记录到 SQLite（`interactions.db`），供 HTML 面板展示。
 
-- 命令：`/paa task|schedule|reminder|tx|note|user|raw ...`（QQ / WebChat 等平台通用）
+- 命令：`/paa task|schedule|reminder|tx|note|user ...`（QQ / WebChat 等平台通用）
 - LLM 工具：`@filter.llm_tool(name="paadm")`，`action + args_json` 通用入口
 - 每次实际调用（成功 / 业务失败 / 超时 / 异常）都会写一条交互日志
 - 纯 Python 标准库实现，**无第三方依赖**；所有 handler 都定义在 `main.py`
@@ -51,7 +51,7 @@ paadm 的数据库路径通过环境变量 `PAADM_DB_PATH` 传给子进程（不
 4. 在 AstrBot WebUI 的插件配置页核对 `paadm_bin` / `paadm_db` /
    `interactions_db`，保存后重新加载插件。
 5. 私聊机器人发送 `/paa help` 验证；日志里应出现
-   `[paadm] v1.0.0 已加载` 和两次启动自检（version / init）。
+   `[paadm] v1.0.1 已加载` 和两次启动自检（version / init）。
 
 > 本插件只支持 AstrBot `>=4.29,<5`（已在 4.29.4 + Python 3.12 容器验证接口形态）。
 
@@ -125,8 +125,11 @@ provider 自动映射：`aiocqhttp` / `napcat` / `onebot` / `qq_official` → `q
 ```text
 /paa help                       中文帮助（/paa 无参数同效）
 /paa user                       查看当前发送者对应的 paadm 用户（id/provider/external id）
-/paa raw <paadm 参数...>        调试透传（仍自动加 --json，并写交互日志）
 ```
+
+**安全边界**：所有 `/paa` 业务命令都只操作当前会话解析出的 paadm 用户；
+`raw` 调试透传已移除。业务参数中出现 `--user-id` 或 `--db` 会被直接拒绝
+（`USER_SCOPE_VIOLATION`），不会执行子进程。
 
 参数支持 `--flag value` 与 `--flag=value` 两种写法；含空格的标题请加引号
 （`/paa task add "写 周报"`）。错误提示面向用户，不会把栈信息发给聊天。
@@ -167,8 +170,9 @@ async def paadm_tool(self, event, action: str, args_json: str = "") -> str
 | `note.create` | content | 可选 title |
 | `note.get` / `note.delete` | id | |
 | `note.list` | - | 可 keyword / from / to / limit |
-| `user.resolve` | provider, external_user_id | 不影响当前用户 |
-| `user.get` | id | |
+
+**安全边界**：工具不提供 `user.*` 查询，所有业务 action 都自动注入当前对话
+用户；`args_json` 中出现 `user_id`、`--user-id` 或 `--db` 会被拒绝。
 
 返回一个 JSON 字符串（结果过长时退化为 `data_preview`）：
 
@@ -198,7 +202,7 @@ CREATE TABLE IF NOT EXISTS interactions (
   platform TEXT,
   sender_id TEXT,
   paadm_user_id TEXT,
-  action TEXT NOT NULL,          -- 如 task.create / user.resolve / version
+  action TEXT NOT NULL,          -- 如 task.create / task.list / version
   argv TEXT,                     -- JSON 数组（含 paadm 二进制路径）
   exit_code INTEGER,
   success INTEGER NOT NULL,      -- 0/1
@@ -213,7 +217,7 @@ CREATE INDEX IF NOT EXISTS idx_interactions_action ON interactions(action);
 
 写入时机：
 
-- 每次实际执行的 paadm 调用（包括 `user.resolve`、启动自检的 `version`/`init`）；
+- 每次实际执行的 paadm 调用（包括启动自检的 `version`/`init`）；
 - 超时 / 找不到二进制 / 非法 JSON 等异常也会写一行（`success=0`，带 `error_code`）；
 - **参数解析失败不会调用 paadm，也不会写日志**；
 - 写日志失败只告警，不影响业务回复。
@@ -311,7 +315,7 @@ docker exec -it astrbot-new sh -lc \
 docker logs astrbot-new 2>&1 | grep -i paadm | tail -50
 ```
 
-重点看：`[paadm] v1.0.0 已加载`、`启动自检通过`、`启动自检失败`、`写 interactions 日志失败`。
+重点看：`[paadm] v1.0.1 已加载`、`启动自检通过`、`启动自检失败`、`写 interactions 日志失败`。
 
 **5）命令报 `PAADM_NOT_FOUND`：**
 插件配置的 `paadm_bin` 与容器内实际路径不一致，或文件没有执行权限。

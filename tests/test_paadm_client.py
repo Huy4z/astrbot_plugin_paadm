@@ -94,6 +94,49 @@ class SuccessTest(ClientTestBase):
             self.assertIsInstance(token, str)
 
 
+class UserScopeTest(ClientTestBase):
+    def test_rejects_user_id_argument_without_spawning(self):
+        client, calls = self.make_client()
+        result = client.run(
+            ["task", "list", "--user-id", "other-user"],
+            source="command",
+            action="task.list",
+            user_id="paa-user-1",
+        )
+        self.assertFalse(result.success)
+        self.assertEqual(result.error_code, "USER_SCOPE_VIOLATION")
+        self.assertEqual(_support.read_calls(calls), [])
+        row = self.store.fetch_recent(1)[0]
+        self.assertEqual(row["action"], "task.list")
+        self.assertEqual(row["error_code"], "USER_SCOPE_VIOLATION")
+
+    def test_rejects_db_argument_equals_form(self):
+        client, calls = self.make_client()
+        result = client.run(
+            ["task", "list", "--db=/tmp/other.db"],
+            source="command",
+            action="task.list",
+            user_id="paa-user-1",
+        )
+        self.assertFalse(result.success)
+        self.assertEqual(result.error_code, "USER_SCOPE_VIOLATION")
+        self.assertEqual(_support.read_calls(calls), [])
+
+    def test_allows_business_args(self):
+        client, calls = self.make_client()
+        result = client.run(
+            ["task", "list", "--status", "pending"],
+            source="command",
+            action="task.list",
+            user_id="paa-user-1",
+        )
+        self.assertTrue(result.success)
+        self.assertEqual(
+            _support.read_calls(calls)[0],
+            ["--json", "--user-id", "paa-user-1", "task", "list", "--status", "pending"],
+        )
+
+
 class FailureTest(ClientTestBase):
     def test_business_failure_maps_error_code(self):
         client, _ = self.make_client("fail")

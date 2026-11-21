@@ -257,11 +257,10 @@ class ParseCommandTest(unittest.TestCase):
 
     def test_user_and_raw(self):
         self.assertEqual(router.parse_command(["user"]).action, "user.resolve")
-        plan = router.parse_command(["raw", "task", "list", "--status", "pending"])
-        self.assertEqual(plan.action, "raw")
-        self.assertEqual(plan.argv, ["task", "list", "--status", "pending"])
         with self.assertRaises(router.CommandError):
-            router.parse_command(["raw"])
+            router.parse_command(["raw", "task", "list", "--status", "pending"])
+        self.assertNotIn("user.get", router.LLM_ACTIONS)
+        self.assertNotIn("user.resolve", router.LLM_ACTIONS)
 
     def test_unknown_command(self):
         with self.assertRaises(router.CommandError):
