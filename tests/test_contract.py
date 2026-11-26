@@ -26,6 +26,7 @@ REQUIRED_SCHEMA_KEYS = (
     "reply_max_rows",
     "log_stdout_chars",
     "provider_override",
+    "allowed_platforms",
 )
 
 ALLOWED_CONFIG_TYPES = {"string", "int", "bool", "float", "text"}

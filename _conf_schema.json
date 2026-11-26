@@ -40,5 +40,11 @@
     "description": "平台 provider 覆盖值（空 = 按平台自动映射）",
     "hint": "空字符串时：aiocqhttp/qq_official → qq，webchat → webchat，其它平台名小写兜底；一般无需填写",
     "default": ""
+  },
+  "allowed_platforms": {
+    "type": "string",
+    "description": "允许响应的平台适配器 id 白名单（逗号分隔；留空 = 所有平台）",
+    "hint": "填 AstrBot 平台适配器的 id（WebUI 平台页里那个 id，如 QQbot-test,qq-snowluma）。用于一个实例挂多个机器人、但只让其中部分机器人拥有 /paa 命令与 paadm 工具的场景；留空表示不限制。",
+    "default": ""
   }
 }

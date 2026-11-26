@@ -40,7 +40,7 @@ except Exception:  # pragma: no cover - 极少数加载方式下兜底（退化�
     GreedyStr = str  # type: ignore[assignment,misc]
 
 PLUGIN_NAME = "astrbot_plugin_paadm"
-PLUGIN_VERSION = "1.0.1"
+PLUGIN_VERSION = "1.0.2"
 PLUGIN_DESC = "通过 paadm 管理待办/日程/提醒/收支/笔记，并把每次调用写入交互日志供面板展示"
 
 DEFAULT_CONFIG: Dict[str, Any] = {
@@ -51,6 +51,7 @@ DEFAULT_CONFIG: Dict[str, Any] = {
     "reply_max_rows": 20,
     "log_stdout_chars": 4000,
     "provider_override": "",
+    "allowed_platforms": "",
 }
 
 PLATFORM_PROVIDER_MAP: Dict[str, str] = {
@@ -85,6 +86,21 @@ def _config_int(config: Dict[str, Any], key: str, default: int) -> int:
     except (TypeError, ValueError):
         return default
     return number if number > 0 else default
+
+
+def _config_str_list(config: Dict[str, Any], key: str, default: list[str]) -> list[str]:
+    """读取字符串列表配置（支持 list 或逗号分隔字符串）。"""
+    value = config.get(key, default)
+    if value is None:
+        return list(default)
+    if isinstance(value, str):
+        items = [part.strip() for part in value.split(",")]
+    elif isinstance(value, (list, tuple, set)):
+        items = [str(part).strip() for part in value]
+    else:
+        return list(default)
+    items = [item for item in items if item]
+    return items
 
 
 def _safe_call(event: Any, method: str, default: str = "") -> str:
@@ -146,6 +162,10 @@ class PaadmPlugin(Star):
             self.interactions_db,
             self.timeout_seconds,
         )
+        logger.info(
+            "[paadm] 平台白名单：%s",
+            ",".join(self.allowed_platforms) if self.allowed_platforms else "（全部平台）",
+        )
 
     # ------------------------------------------------------------------
     # 配置
@@ -167,10 +187,27 @@ class PaadmPlugin(Star):
             config, "log_stdout_chars", int(DEFAULT_CONFIG["log_stdout_chars"])
         )
         self.provider_override = _config_str(config, "provider_override", "")
+        # 平台白名单：空 = 所有平台都响应；非空 = 只在列出的平台适配器 id 上响应。
+        # 用于「一个 AstrBot 实例挂多个机器人，但只有部分机器人带本插件」。
+        self.allowed_platforms = _config_str_list(config, "allowed_platforms", [])
 
     # ------------------------------------------------------------------
     # 事件元数据 / provider 映射
     # ------------------------------------------------------------------
+    def _platform_allowed(self, event: Any) -> bool:
+        """平台白名单判定：空列表 = 不限制；否则 event 的平台适配器 id 必须在列表里。"""
+        allowed = getattr(self, "allowed_platforms", []) or []
+        if not allowed:
+            return True
+        platform_id = _safe_call(event, "get_platform_id", "")
+        if not platform_id:
+            # 少数适配器没有 get_platform_id：退化为 UMO 前缀（"<platform_id>:<type>:<session>"）
+            umo = _safe_call(event, "get_unified_msg_origin", "") or str(
+                getattr(event, "unified_msg_origin", "") or ""
+            )
+            platform_id = umo.split(":", 1)[0] if umo else ""
+        return platform_id in allowed
+
     def _event_meta(self, event: Any) -> Dict[str, str]:
         platform = _safe_call(event, "get_platform_name", "")
         sender_id = _safe_call(event, "get_sender_id", "")
@@ -251,6 +288,9 @@ class PaadmPlugin(Star):
         ``GreedyStr`` 标记，导致命令只拿到第一个词（例如 ``/paa task add x``
         只收到 ``task``）。无参数时剩余列表为空，AstrBot 会注入空字符串。
         """
+        if not self._platform_allowed(event):
+            logger.debug("[paadm] 平台不在白名单内，忽略 /paa 命令")
+            return
         text = str(args or "").strip()
         if not text:
             # 兼容极少数加载路径下命令参数未注入的情况：从 event 文本里还原。
@@ -325,6 +365,10 @@ class PaadmPlugin(Star):
             action(string): 操作名，如 task.create、task.list、transaction.summary、note.get
             args_json(string): JSON 对象字符串，键为 paadm 的 snake_case 参数名，如 {"title":"写周报","due_at":"2026-11-20T18:00:00+08:00"}；无参数时传 {}
         """
+        if not self._platform_allowed(event):
+            return command_router.tool_error_json(
+                "PLATFORM_DISABLED", "当前机器人未启用个人事务（paadm）功能"
+            )
         try:
             return await self._run_llm_tool(event, action, args_json)
         except Exception:  # noqa: BLE001 - 工具异常必须变成可读 JSON，不能中断对话

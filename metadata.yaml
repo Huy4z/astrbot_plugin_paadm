@@ -2,7 +2,7 @@ name: astrbot_plugin_paadm
 display_name: Paadm 个人事务
 desc: 通过 paadm CLI 管理待办/日程/提醒/收支/笔记，并把每次调用写入交互日志供 HTML 面板展示
 short_desc: /paa 命令 + paadm LLM 工具 + interactions 交互日志
-version: 1.0.1
+version: 1.0.2
 author: Huy4z
 astrbot_version: ">=4.29,<5"
 repo: https://github.com/Huy4z/astrbot_plugin_paadm

@@ -433,3 +433,38 @@ class ReplyConfigTest(MainTestBase):
 
 if __name__ == "__main__":
     unittest.main()
+
+class PlatformAllowlistTest(MainTestBase):
+    """平台白名单：一个实例挂多个机器人时，只让部分机器人拥有 /paa 与 paadm 工具。"""
+
+    def test_empty_allowlist_keeps_all_platforms(self):
+        event = _support.FakeEvent(platform="qq-snowluma")
+        text, _ = self.run_paa("help", event=event)
+        self.assertIn("/paa help", text)
+
+    def test_command_blocked_on_other_platform(self):
+        self.plugin.allowed_platforms = ["QQbot-test"]
+        event = _support.FakeEvent(platform="qq-snowluma")
+        results = _support.run_handler(self.plugin, event, "help")
+        self.assertEqual(results, [], "不在白名单的平台应静默忽略 /paa")
+
+    def test_command_allowed_on_listed_platform(self):
+        self.plugin.allowed_platforms = ["QQbot-test"]
+        event = _support.FakeEvent(platform="QQbot-test")
+        text, _ = self.run_paa("help", event=event)
+        self.assertIn("/paa help", text)
+
+    def test_llm_tool_blocked_on_other_platform(self):
+        self.plugin.allowed_platforms = ["QQbot-test"]
+        event = _support.FakeEvent(platform="qq-snowluma")
+        out = _support.run(
+            _support.call_llm_tool(self.plugin, event, "task.list")
+        )
+        self.assertIn("PLATFORM_DISABLED", out)
+
+    def test_llm_tool_allowed_on_listed_platform(self):
+        self.plugin.allowed_platforms = ["QQbot-test"]
+        event = _support.FakeEvent(platform="QQbot-test")
+        out = _support.run(_support.call_llm_tool(self.plugin, event, "task.list"))
+        self.assertNotIn("PLATFORM_DISABLED", out)
+

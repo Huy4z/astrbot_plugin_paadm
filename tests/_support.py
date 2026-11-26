@@ -408,6 +408,12 @@ class FakeEvent:
     def get_platform_name(self) -> str:
         return self.platform
 
+    def get_platform_id(self) -> str:
+        return getattr(self, "platform_id", self.platform)
+
+    def get_unified_msg_origin(self) -> str:
+        return f"{self.get_platform_id()}:FriendMessage:{self.sender_id}"
+
     def get_sender_id(self) -> str:
         return self.sender_id
 
